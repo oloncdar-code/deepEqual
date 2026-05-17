@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мини‑SPA с роутингом и состоянием</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      transition: background 0.2s, color 0.2s;
+    }
+    /* две темы */
+    body.light {
+      --bg: #f5f7fb;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --text-secondary: #475569;
+      --border: #cbd5e1;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --nav-bg: #ffffffcc;
+    }
+    body.dark {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --border: #334155;
+      --primary: #60a5fa;
+      --primary-hover: #93c5fd;
+      --nav-bg: #1e293bcc;
+    }
+    /* навигация */
+    nav {
+      backdrop-filter: blur(8px);
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      gap: 2rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    nav a {
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 500;
+      padding: 0.5rem 0;
+      transition: color 0.2s;
+    }
+    nav a:hover {
+      color: var(--primary);
+    }
+    nav a.active {
+      color: var(--primary);
+      border-bottom: 2px solid var(--primary);
+    }
+    /* основная часть */
+    main {
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 1.5rem;
+      padding: 1.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border: 1px solid var(--border);
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    button, input, select {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 2rem;
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      color: var(--text);
+    }
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: var(--primary-hover);
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      max-width: 300px;
+    }
+    .theme-buttons {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    .status {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body class="light">
+  <nav>
+    <a href="#/" data-route="/">🏠 Главная</a>
+    <a href="#/about" data-route="/about">📖 О нас</a>
+    <a href="#/settings" data-route="/settings">⚙️ Настройки</a>
+  </nav>
+  <main id="app">
+    <div class="card">Загрузка...</div>
+  </main>
+
+  <script>
+    // ГЛОБАЛЬНОЕ СОСТОЯНИЕ-STORE
+    class Store {
+      constructor(initialState) {
+        this.state = { ...initialState };
+        this.listeners = []; 
+      }
+
+      // Получить состояние
+      getState() {
+        return this.state;
+      }
+
+      // Обновить состояние
+      setState(newState) {
+        const oldState = { ...this.state };
+        this.state = { ...this.state, ...newState };
+        // Уведомить подписчиков
+        this.listeners.forEach(listener => listener(this.state, oldState));
+        // Сохранить выбранные настройки в localStorage
+        if (newState.theme !== undefined || newState.userName !== undefined) {
+          this.saveToLocalStorage();
+        }
+      }
+
+      // Подписка на изменения
+      subscribe(listener) {
+        this.listeners.push(listener);
+        // Вернуть функцию подписки
+        return () => {
+          this.listeners = this.listeners.filter(l => l !== listener);
+        };
+      }
+
+      // Загрузить из localStorage при инициализации
+      loadFromLocalStorage() {
+        const saved = localStorage.getItem('spa_settings');
+        if (saved) {
+          try {
+            const settings = JSON.parse(saved);
+            if (settings.theme) this.state.theme = settings.theme;
+            if (settings.userName) this.state.userName = settings.userName;
+          } catch(e) { console.warn(e); }
+        }
+      }
+
+      saveToLocalStorage() {
+        const toSave = {
+          theme: this.state.theme,
+          userName: this.state.userName
+        };
+        localStorage.setItem('spa_settings', JSON.stringify(toSave));
+      }
+    }
+
+    // Начальное состояние
+    const initialState = {
+      userName: 'Гость',
+      theme: 'light',   // 'light' или 'dark'
+      visits: 0,
+      lastUpdate: new Date().toLocaleString()
+    };
+
+    // Глобальный стор
+    const store = new Store(initialState);
+    store.loadFromLocalStorage();
+
+    // Применить тему
+    function applyTheme(theme) {
+      const body = document.body;
+      body.classList.remove('light', 'dark');
+      body.classList.add(theme);
+    }
+    applyTheme(store.getState().theme);
+
+    // Подписка: при любом изменении обновить тему (если изменилась) и перерисовать страницу
+    let currentRoute = '/';
+    store.subscribe((newState) => {
+      // Применить тему
+      applyTheme(newState.theme);
+      // Перерисовать текущую страницу (чтобы отобразить актуальные данные)
+      renderCurrentRoute();
+    });
+
+    // КЛИЕНТСКИЙ РОУТИНГ на Hash
+    // Маршруты: путь → функция рендеринга
+    const routes = {
+      '/': () => renderHomePage(),
+      '/about': () => renderAboutPage(),
+      '/settings': () => renderSettingsPage()
+    };
+
+    // Функция получения текущего пути из хэша
+    function getCurrentRoute() {
+      let hash = window.location.hash.slice(1) || '/'; // убираем #
+      // нормализация: если хэш пуст или не начинается с /, делаем /
+      if (!hash.startsWith('/')) hash = '/' + hash;
+      // если маршрут не зарегистрирован, отдаём 404
+      return routes[hash] ? hash : '/';
+    }
+
+    // Рендер текущей страницы в DOM
+    async function renderCurrentRoute() {
+      const route = getCurrentRoute();
+      currentRoute = route;
+      const contentDiv = document.getElementById('app');
+      if (!contentDiv) return;
+
+      const renderFn = routes[route];
+      if (renderFn) {
+        const html = renderFn();
+        contentDiv.innerHTML = html;
+        // После вставки HTML привязать обработчики (если есть)
+        attachEventHandlersForCurrentPage();
+      } else {
+        contentDiv.innerHTML = `<div class="card"><h2>404</h2><p>Страница не найдена</p></div>`;
+      }
+      // Подсветка активной ссылки
+      highlightActiveLink(route);
+    }
+
+    // Подсветка активного пункта меню
+    function highlightActiveLink(route) {
+      document.querySelectorAll('nav a').forEach(link => {
+        const linkRoute = link.getAttribute('data-route');
+        if (linkRoute === route) {
+          link.classList.add('active');
+        } else {
+          link.classList.remove('active');
+        }
+      });
+    }
+
+    // Привязка обработчиков для страницы Настроек (форма + кнопки темы)
+    function attachEventHandlersForCurrentPage() {
+      const route = getCurrentRoute();
+      if (route === '/settings') {
+        // Форма изменения имени
+        const userNameInput = document.getElementById('userNameInput');
+        const saveNameBtn = document.getElementById('saveNameBtn');
+        if (saveNameBtn && userNameInput) {
+          // Установить текущее значение из стора
+          userNameInput.value = store.getState().userName;
+          saveNameBtn.onclick = () => {
+            const newName = userNameInput.value.trim();
+            if (newName) {
+              store.setState({ userName: newName, lastUpdate: new Date().toLocaleString() });
+            } else {
+              alert('Имя не может быть пустым');
+            }
+          };
+        }
+        // Кнопки выбора темы
+        const lightBtn = document.getElementById('themeLight');
+        const darkBtn = document.getElementById('themeDark');
+        if (lightBtn) {
+          lightBtn.onclick = () => store.setState({ theme: 'light' });
+        }
+        if (darkBtn) {
+          darkBtn.onclick = () => store.setState({ theme: 'dark' });
+        }
+      }
+    }
+
+    // СТРАНИЦЫ (view-функции)
+    function renderHomePage() {
+      const state = store.getState();
+      return `
+        <div class="card">
+          <h1>🏠 Главная</h1>
+          <p>Добро пожаловать, <strong>${escapeHtml(state.userName)}</strong>!</p>
+          <p>Вы посетили эту страницу ${state.visits} раз(а).</p>
+          <p>Последнее обновление состояния: ${state.lastUpdate}</p>
+          <button id="incVisitBtn">➕ Увеличить счётчик</button>
+          <div class="status">✨ Глобальное состояние разделяется между всеми страницами.</div>
+        </div>
+      `;
+    }
+
+    function renderAboutPage() {
+      const state = store.getState();
+      return `
+        <div class="card">
+          <h2>📖 О приложении</h2>
+          <p>Это мини‑SPA с клиентским роутингом и глобальным состоянием.</p>
+          <p>Текущий пользователь: <strong>${escapeHtml(state.userName)}</strong></p>
+          <p>Тема оформления: ${state.theme === 'light' ? 'Светлая' : 'Тёмная'}</p>
+          <p>Счётчик посещений главной страницы: ${state.visits}</p>
+          <p>Технологии: чистый JS, hash‑роутинг, паттерн Store, localStorage.</p>
+        </div>
+      `;
+    }
+
+    function renderSettingsPage() {
+      const state = store.getState();
+      return `
+        <div class="card">
+          <h2>⚙️ Настройки</h2>
+          <div class="form-group">
+            <label>👤 Ваше имя:</label>
+            <input type="text" id="userNameInput" placeholder="Введите имя" value="${escapeHtml(state.userName)}">
+            <button id="saveNameBtn" style="margin-top: 0.5rem;">Сохранить</button>
+          </div>
+          <div class="form-group">
+            <label>🎨 Тема оформления:</label>
+            <div class="theme-buttons">
+              <button id="themeLight" class="${state.theme === 'light' ? 'active' : ''}">☀️ Светлая</button>
+              <button id="themeDark" class="${state.theme === 'dark' ? 'active' : ''}">🌙 Тёмная</button>
+            </div>
+          </div>
+          <div class="status">
+            <p>✅ Настройки автоматически сохраняются в <code>localStorage</code>.</p>
+            <p>После перезагрузки страницы ваше имя и тема восстановятся.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    // Вспомогательная функция для защиты от XSS
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+      }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+        return c;
+      });
+    }
+
+    // УВЕЛИЧЕНИЕ СЧЁТЧИКА
+    const originalAttach = attachEventHandlersForCurrentPage;
+    window.attachEventHandlersForCurrentPage = function() {
+      originalAttach();
+      const route = getCurrentRoute();
+      if (route === '/') {
+        const incBtn = document.getElementById('incVisitBtn');
+        if (incBtn) {
+          incBtn.onclick = () => {
+            const currentVisits = store.getState().visits;
+            store.setState({ visits: currentVisits + 1, lastUpdate: new Date().toLocaleString() });
+          };
+        }
+      }
+    };
+    attachEventHandlersForCurrentPage = window.attachEventHandlersForCurrentPage;
+
+    // ИНИЦИАЛИЗАЦИЯ РОУТИНГА
+    // Обработчик изменения хэша
+    function onHashChange() {
+      renderCurrentRoute();
+    }
+
+    // Первоначальный рендер
+    window.addEventListener('load', () => {
+      renderCurrentRoute();
+    });
+    window.addEventListener('hashchange', onHashChange);
+  </script>
+</body>
+</html>
